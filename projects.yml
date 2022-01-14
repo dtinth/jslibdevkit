@@ -1,0 +1,21 @@
+- name: bsearch
+  repo: https://github.com/dtinth/bsearch
+- name: ride
+  repo: https://github.com/dtinth/ride
+- name: circumstance
+  repo: https://github.com/dtinth/circumstance
+- name: '@spacet.me/chain'
+  repo: https://github.com/dtinth/chain
+- name: tkt
+  repo: https://github.com/dtinth/tkt
+- name: monetizer
+  repo: https://github.com/dtinth/monetizer
+- name: ablend
+  repo: https://github.com/dtinth/ablend
+- name: '@dtinth/osa'
+  repo: https://github.com/dtinth/osa
+- name: '@dtinth/google-sign-in-controller'
+  repo: https://github.com/dtinth/google-sign-in-controller
+
+# - name: promptpay-qr
+#   repo: https://github.com/dtinth/promptpay-qr

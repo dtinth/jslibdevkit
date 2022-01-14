@@ -1,0 +1,159 @@
+#!/usr/bin/env ruby
+require "bundler/setup"
+require "dry/cli"
+require "yaml"
+require "json"
+
+module JsLibDevKit
+  module CLI
+    module Commands
+      extend Dry::CLI::Registry
+
+      class Update < Dry::CLI::Command
+        desc "Updates all repos"
+
+        def call(*)
+          # Read `projects.yml`
+          projects = YAML.load_file("projects.yml")
+          projects.each do |project|
+            package_name = project["name"]
+            project_repo = project["repo"]
+            repo_dir = "#{ENV["HOME"]}/npmPackages/#{package_name}"
+
+            # Run `gh repo clone` if the repo doesn't exist
+            unless Dir.exist?(repo_dir)
+              system("gh repo clone #{project_repo} #{repo_dir}")
+            end
+
+            # Ensure that the package name matches
+            package_json = JSON.parse(File.read("#{repo_dir}/package.json"))
+            if package_json["name"] != package_name
+              raise "#{package_name}: 'name' in package.json does not match the name in projects.yml"
+            end
+
+            # Remove `yarn.lock` and `package-lock.json`
+            if File.exist?("#{repo_dir}/yarn.lock")
+              File.delete("#{repo_dir}/yarn.lock")
+              puts "#{package_name}: Removed yarn.lock"
+            end
+            if File.exist?("#{repo_dir}/package-lock.json")
+              File.delete("#{repo_dir}/package-lock.json")
+              puts "#{package_name}: Removed package-lock.json"
+            end
+
+            # Install dependencies using pnpm
+            system("cd #{repo_dir} && pnpm install --prefer-offline")
+          end
+        end
+      end
+
+      class Setup < Dry::CLI::Command
+        desc "Set up tooling in this repo"
+
+        def call(*)
+          system "rsync -rv '#{__dir__}/skeleton/' ./"
+          system "pnpm install --prefer-offline --save-dev @rushstack/heft@0.44.2 @rushstack/heft-web-rig@0.7.2 @types/heft-jest@1.0.2 release-it@14.12.1 prettier@2.5.1"
+          system "mkdir -p etc"
+
+          JsonEditor.run("package.json") do |pkg|
+            pkg.set 'scripts', 'build', 'heft build'
+            pkg.set 'scripts', 'test', 'heft test'
+            pkg.set 'scripts', 'prepare', 'heft build'
+            pkg.set 'scripts', 'release', 'release-it'
+            pkg.set 'files', [
+              "src",
+              "lib",
+              "lib-commonjs",
+              "dist"
+            ]
+            pkg.set 'main', './lib-commonjs/index.js'
+            pkg.set 'module', './lib/index.js'
+            pkg.set 'types', "./dist/#{pkg.json['name'].split('/').last}.d.ts"
+            pkg.delete 'typings'
+          end
+
+          # Create tsconfig.json
+          if !File.exist?("tsconfig.json")
+            File.write("tsconfig.json", "{}")
+          end
+
+          JsonEditor.run("tsconfig.json") do |tsc|
+            tsc.set 'extends', './tsconfig-base.json'
+            types = tsc.get('compilerOptions', 'types') || []
+            types << 'heft-jest' unless types.include?('heft-jest')
+            tsc.set 'compilerOptions', 'types', types
+          end
+        end
+      end
+
+      register "update", Update
+      register "setup", Setup
+    end
+  end
+
+  class JsonEditor
+    def self.run(file_path)
+      pkg = self.new(file_path)
+      yield(pkg)
+      pkg.save
+    end
+
+    def json
+      @pkg
+    end
+
+    def initialize(file_path)
+      @file_path = file_path
+      contents = File.read(file_path)
+      @pkg = JSON.parse(contents)
+      @old_pkg = JSON.parse(contents)
+    end
+
+    def package_name
+      @pkg["name"]
+    end
+
+    def get(*args)
+      target = @pkg
+      args.each do |arg|
+        target = target[arg]
+        return nil unless target
+      end
+      target
+    end
+
+    def set(*args)
+      value = args.pop
+      key = args.pop
+      target = @pkg
+      args.each do |arg|
+        target = (target[arg] ||= {})
+      end
+      if target[key] != value
+        target[key] = value
+        puts "#{package_name}: Updated package#{[*args, key].map { |k| "[#{k.to_json}]" }.join} => #{value.to_json}"
+      end
+    end
+
+    def delete(*args)
+      key = args.pop
+      target = @pkg
+      args.each do |arg|
+        target = target[arg]
+      end
+      if target[key]
+        target.delete(key)
+        puts "#{package_name}: Deleted package#{[*args, key].map { |k| "[#{k.to_json}]" }.join}"
+      end
+    end
+
+
+    def save
+      if @pkg != @old_pkg
+        File.write(@file_path, JSON.pretty_generate(@pkg))
+      end
+    end
+  end
+end
+
+Dry::CLI.new(JsLibDevKit::CLI::Commands).call

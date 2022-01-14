@@ -1,0 +1,13 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    dry-cli (0.7.0)
+
+PLATFORMS
+  arm64-darwin-20
+
+DEPENDENCIES
+  dry-cli
+
+BUNDLED WITH
+   2.2.25
