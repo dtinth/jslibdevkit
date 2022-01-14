@@ -58,10 +58,11 @@ module JsLibDevKit
             "@rushstack/heft" => "0.44.2",
             "@rushstack/heft-web-rig" => "0.7.2",
             "@types/heft-jest" => "1.0.2",
-            "release-it" => "14.12.1",
+            "release-it" => "15.0.0-esm.3",
             "prettier" => "2.5.1",
-            "news-fragments" => "1.14.2"
+            "@spacet.me/news-fragments" => "1.15.2-1"
           }
+          system "pnpm remove --save-dev news-fragments || true"
           system "pnpm install --prefer-offline --save-dev #{dev_dependencies.map { |k, v| "#{k}@#{v}" }.join(" ")}"
           system "mkdir -p etc"
 
