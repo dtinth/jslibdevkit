@@ -51,26 +51,36 @@ module JsLibDevKit
         desc "Set up tooling in this repo"
 
         def call(*)
-          system "rsync -rv '#{__dir__}/skeleton/' ./"
-          system "rm -rf .release-it.json" # Replaced with `.release-it.yml`
-          system "rm -rf .prettierrc" # Replaced with `.prettierrc.yml`
           dev_dependencies = {
             "@rushstack/heft" => "0.44.2",
             "@rushstack/heft-web-rig" => "0.7.2",
             "@types/heft-jest" => "1.0.2",
             "release-it" => "15.0.0-esm.3",
             "prettier" => "2.5.1",
-            "@spacet.me/news-fragments" => "1.15.2-1"
+            "@spacet.me/news-fragments" => "1.15.2-1",
+            "@microsoft/api-documenter" => "7.14.1",
+            "api-documenter-yaml-to-antora-asciidoc" => "0.0.0-11",
           }
-          system "pnpm remove --save-dev news-fragments || true"
-          system "pnpm install --prefer-offline --save-dev #{dev_dependencies.map { |k, v| "#{k}@#{v}" }.join(" ")}"
-          system "mkdir -p etc"
+          dev_dependencies_to_remove = [
+            # Overridden by @spacet.me/news-fragments
+            'news-fragments',
+            # Overridden by @rushstack/heft
+            'jest',
+            # Overridden by @rushstack/heft
+            'mocha',
+            # Overridden by @rushstack/heft
+            'chai',
+            # Overridden by @rushstack/heft
+            'typescript',
+          ]
 
           JsonEditor.run("package.json") do |pkg|
             pkg.set 'scripts', 'build', 'heft build'
             pkg.set 'scripts', 'test', 'heft test'
             pkg.set 'scripts', 'prepare', 'heft build'
             pkg.set 'scripts', 'release', 'release-it'
+            pkg.set 'scripts', 'format', 'prettier --write .'
+            pkg.set 'scripts', 'api', './scripts/generate-api-docs'
             pkg.set 'files', [
               "src",
               "lib",
@@ -81,7 +91,17 @@ module JsLibDevKit
             pkg.set 'module', './lib/index.js'
             pkg.set 'types', "./dist/#{pkg.json['name'].split('/').last}.d.ts"
             pkg.delete 'typings'
+
+            dev_dependencies.each do |name, version|
+              pkg.set 'devDependencies', name, version
+            end
+            pkg.delete 'devDependencies', 'news-fragments'
           end
+
+          system "rsync -rv '#{__dir__}/skeleton/' ./"
+          system "rm -rf .release-it.json" # Replaced with `.release-it.yml`
+          system "rm -rf .prettierrc"      # Replaced with `.prettierrc.yml`
+          system "mkdir -p etc"
 
           # Create tsconfig.json
           if !File.exist?("tsconfig.json")
