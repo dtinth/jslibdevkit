@@ -9,5 +9,4 @@ for I in temp/api/*.json; do
   sed -i.bak 's/_2//g' "$I"
 done
 
-api-documenter yaml -i temp/api -o temp/api-yaml
-api-documenter-yaml-to-antora-asciidoc asciidoc -i temp/api-yaml
+cp temp/api/*.json dist/
