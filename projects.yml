@@ -6,6 +6,8 @@
   repo: https://github.com/dtinth/ui-stock
 - name: bsearch
   repo: https://github.com/dtinth/bsearch
+- name: sync-external-store
+  repo: https://github.com/dtinth/sync-external-store
 - name: ride
   repo: https://github.com/dtinth/ride
 
