@@ -53,6 +53,7 @@ module JsLibDevKit
             ".prettierrc",       # Replaced with `.prettierrc.yml`
             ".yarn.lock",        # Replaced with `pnpm-lock.yaml`
             "package-lock.json", # Replaced with `pnpm-lock.yaml`
+            ".release-it.yml",   # Replaced with `.changeset`
           ]
           files_to_delete.each do |file|
             if File.exist?(file)
