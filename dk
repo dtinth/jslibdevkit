@@ -31,16 +31,6 @@ module JsLibDevKit
               raise "#{package_name}: 'name' in package.json does not match the name in projects.yml"
             end
 
-            # Remove `yarn.lock` and `package-lock.json`
-            if File.exist?("#{repo_dir}/yarn.lock")
-              File.delete("#{repo_dir}/yarn.lock")
-              puts "#{package_name}: Removed yarn.lock"
-            end
-            if File.exist?("#{repo_dir}/package-lock.json")
-              File.delete("#{repo_dir}/package-lock.json")
-              puts "#{package_name}: Removed package-lock.json"
-            end
-
             # Install dependencies using pnpm
             system("cd #{repo_dir} && pnpm install --prefer-offline")
           end
@@ -48,44 +38,53 @@ module JsLibDevKit
       end
 
       class Setup < Dry::CLI::Command
-        desc "Set up tooling in this repo"
+        desc "Set up tooling in this repo (idempotent)"
 
         def call(*)
+          # Copy files from skeleton
           system "rsync -rv '#{__dir__}/skeleton/' ./"
-          system "rm -rf .release-it.json" # Replaced with `.release-it.yml`
-          system "rm -rf .prettierrc"      # Replaced with `.prettierrc.yml`
+
+          # Create some required directories
           system "mkdir -p etc"
 
+          # Delete files
+          files_to_delete = [
+            ".release-it.json",  # Replaced with `.release-it.yml`
+            ".prettierrc",       # Replaced with `.prettierrc.yml`
+            ".yarn.lock",        # Replaced with `pnpm-lock.yaml`
+            "package-lock.json", # Replaced with `pnpm-lock.yaml`
+          ]
+          files_to_delete.each do |file|
+            if File.exist?(file)
+              File.delete(file)
+              puts "Deleted #{file}"
+            end
+          end
+
+          # Update dependency list
           dev_dependencies = {
-            "@rushstack/heft" => "0.44.2",
-            "@rushstack/heft-web-rig" => "0.7.2",
-            "@types/heft-jest" => "1.0.2",
-            "release-it" => "15.0.0-esm.3",
-            "prettier" => "2.5.1",
-            "@spacet.me/news-fragments" => "1.15.2-1",
+            '@rushstack/heft'           => '0.44.2',
+            '@rushstack/heft-web-rig'   => '0.7.2',
+            '@types/heft-jest'          => '1.0.2',
+            'prettier'                  => '2.5.1',
+            '@changesets/cli'           => '2.20.0',
           }
           dev_dependencies_to_remove = [
-            # Overridden by @spacet.me/news-fragments
-            'news-fragments',
-            # Overridden by @rushstack/heft
-            'jest',
-            # Overridden by @rushstack/heft
-            'mocha',
-            # Overridden by @rushstack/heft
-            'chai',
-            # Overridden by @rushstack/heft
-            'typescript',
-            # Moved to apiref.page
-            'api-documenter-yaml-to-antora-asciidoc',
-            # Moved to apiref.page
-            '@microsoft/api-documenter',
+            'jest',                                    # Overridden by @rushstack/heft
+            'mocha',                                   # Overridden by @rushstack/heft
+            'chai',                                    # Overridden by @rushstack/heft
+            'typescript',                              # Overridden by @rushstack/heft
+            'api-documenter-yaml-to-antora-asciidoc',  # Overridden by apiref.page
+            '@microsoft/api-documenter',               # Overridden by apiref.page
+            'news-fragments',                          # Overridden by changeset
+            '@spacet.me/news-fragments',               # Overridden by changeset
+            'release-it',                              # Overridden by changeset
           ]
-
           JsonEditor.run("package.json") do |pkg|
             pkg.set 'scripts', 'build', 'heft build'
             pkg.set 'scripts', 'test', 'heft test'
             pkg.set 'scripts', 'prepare', 'heft build && ./scripts/generate-api-docs'
-            pkg.set 'scripts', 'release', 'release-it'
+            pkg.set 'scripts', 'release', './scripts/release'
             pkg.set 'scripts', 'format', 'prettier --write .'
             pkg.set 'scripts', 'api', './scripts/generate-api-docs'
             pkg.set 'files', [
@@ -108,19 +107,19 @@ module JsLibDevKit
             end
           end
 
-          system "pnpm install --prefer-offline"
-
-          # Create tsconfig.json
+          # Update tsconfig.json
           if !File.exist?("tsconfig.json")
             File.write("tsconfig.json", "{}")
           end
-
           JsonEditor.run("tsconfig.json") do |tsc|
             tsc.set 'extends', './tsconfig-base.json'
             types = tsc.get('compilerOptions', 'types') || []
             types << 'heft-jest' unless types.include?('heft-jest')
             tsc.set 'compilerOptions', 'types', types
           end
+
+          # Install dependencies using pnpm
+          system "pnpm install --prefer-offline"
         end
       end
 
