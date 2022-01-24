@@ -47,6 +47,13 @@ module JsLibDevKit
           # Create some required directories
           system "mkdir -p etc"
 
+          # Remote
+          remote = `git remote -v 2>&1 || true`
+          github_repo = nil
+          if remote =~ /origin\s+.*?(github\.com\/[^\s]+\/[^\s]+?)(?:\.git)?\s/
+            github_repo = "https://#{$1}"
+          end
+
           # Delete files
           files_to_delete = [
             ".release-it.json",  # Replaced with `.release-it.yml`
@@ -111,6 +118,22 @@ module JsLibDevKit
             dev_dependencies_to_remove.each do |name|
               pkg.delete 'devDependencies', name
             end
+
+            if !pkg['homepage']
+              pkg['homepage'] = "#{github_repo}#readme"
+            end
+            if !pkg['bugs']
+              pkg['bugs'] = {
+                'url' => "#{github_repo}#issues"
+              }
+            end
+            if !pkg['repository']
+              pkg['repository'] = {
+                'type' => 'git',
+                'url' => "git+#{github_repo}.git"
+              }
+            end
+            pkg['repository', 'url'] = pkg['repository', 'url'].sub(/^git:\/\//, 'git+https://')
           end
 
           # Update tsconfig.json
