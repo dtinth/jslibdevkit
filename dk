@@ -81,27 +81,32 @@ module JsLibDevKit
             '@spacet.me/news-fragments',               # Overridden by changeset
             'release-it',                              # Overridden by changeset
           ]
+          if !File.exist?("package.json")
+            File.write("package.json", {}.to_json)
+          end
           JsonEditor.run("package.json") do |pkg|
-            pkg.set 'scripts', 'build', 'heft build'
-            pkg.set 'scripts', 'test', 'heft test'
-            pkg.set 'scripts', 'prepare', 'heft build && ./scripts/generate-api-docs'
-            pkg.set 'scripts', 'release', './scripts/release'
-            pkg.set 'scripts', 'format', 'prettier --write .'
-            pkg.set 'scripts', 'api', './scripts/generate-api-docs'
-            pkg.set 'files', [
+            pkg['name'] = File.basename(Dir.pwd) unless pkg['name']
+            pkg['version'] = '0.0.0' unless pkg['version']
+            pkg['scripts', 'build'] = 'heft build'
+            pkg['scripts', 'test'] = 'heft test'
+            pkg['scripts', 'prepare'] = 'heft build && ./scripts/generate-api-docs'
+            pkg['scripts', 'release'] = './scripts/release'
+            pkg['scripts', 'format'] = 'prettier --write .'
+            pkg['scripts', 'api'] = './scripts/generate-api-docs'
+            pkg['files'] = [
               "src",
               "lib",
               "lib-commonjs",
               "dist"
             ]
-            pkg.set 'main', './lib-commonjs/index.js'
-            pkg.set 'module', './lib/index.js'
-            pkg.set 'types', "./dist/#{pkg.json['name'].split('/').last}.d.ts"
-            pkg.set 'docModel', "./dist/#{pkg.json['name'].split('/').last}.api.json"
+            pkg['main'] = './lib-commonjs/index.js'
+            pkg['module'] = './lib/index.js'
+            pkg['types'] = "./dist/#{pkg.json['name'].split('/').last}.d.ts"
+            pkg['docModel'] = "./dist/#{pkg.json['name'].split('/').last}.api.json"
             pkg.delete 'typings'
 
             dev_dependencies.each do |name, version|
-              pkg.set 'devDependencies', name, version
+              pkg['devDependencies', name] = version
             end
             dev_dependencies_to_remove.each do |name|
               pkg.delete 'devDependencies', name
@@ -117,6 +122,14 @@ module JsLibDevKit
             types = tsc.get('compilerOptions', 'types') || []
             types << 'heft-jest' unless types.include?('heft-jest')
             tsc.set 'compilerOptions', 'types', types
+          end
+
+          # Index
+          if !Dir.exist?("src")
+            Dir.mkdir("src")
+          end
+          if !File.exist?("src/index.ts")
+            File.write("src/index.ts", "export {}")
           end
 
           # Install dependencies using pnpm
@@ -185,6 +198,8 @@ module JsLibDevKit
       end
     end
 
+    alias_method :[]=, :set
+    alias_method :[], :get
 
     def save
       if @pkg != @old_pkg
