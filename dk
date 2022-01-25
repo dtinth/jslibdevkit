@@ -27,13 +27,32 @@ module JsLibDevKit
         puts "[#{package_name}] Repo already exists, skipping..."
       else
         puts "[#{package_name}] Cloning repo..."
-        system("gh repo clone #{project_repo} #{repo_dir}")
+        system "gh repo clone #{project_repo} #{repo_dir}"
       end
 
       # Ensure that the package name matches
       package_json = JSON.parse(File.read("#{repo_dir}/package.json"))
       if package_json["name"] != package_name
         raise "#{package_name}: 'name' in package.json does not match the name in projects.yml"
+      end
+    end
+    def maintain!
+      Dir.chdir(repo_dir) do
+        system "git fetch" or raise "Failed to fetch repo"
+        system "git checkout origin/main" or raise "Failed to checkout main"
+        ProjectSetup.call
+        system "pnpm update" or raise "Failed to update pnpm"
+        system "pnpm run format" or raise "Failed to format"
+        system "git add --all" or raise "Failed to add files"
+        system "git status"
+        if system "git commit -m 'Perform maintenance routine'"
+          system "git push origin HEAD:refs/heads/jslibdevkit-maintenance --force" or raise "Failed to push"
+          system "gh pr create --head jslibdevkit-maintenance --title '[jslibdevkit] Perform maintenance routine' --body 'This PR performs an automated maintenance routine.'"
+        else
+          puts "No changes to commit"
+        end
+        puts "Done! We will now go back to main branch. To recover, run `git checkout #{`git rev-parse HEAD`}`"
+        system "git checkout main"
       end
     end
   end
@@ -71,7 +90,7 @@ module JsLibDevKit
       # Update dependency list
       dev_dependencies = {
         '@rushstack/heft'           => '0.44.2',
-        '@rushstack/heft-web-rig'   => '0.7.2',
+        '@rushstack/heft-web-rig'   => '0.8.2',
         '@types/heft-jest'          => '1.0.2',
         'prettier'                  => '2.5.1',
         '@changesets/cli'           => '2.20.0',
@@ -118,21 +137,25 @@ module JsLibDevKit
           pkg.delete 'devDependencies', name
         end
 
-        if !pkg['homepage']
-          pkg['homepage'] = "#{github_repo}#readme"
+        if github_repo
+          if !pkg['homepage']
+            pkg['homepage'] = "#{github_repo}#readme"
+          end
+          if !pkg['bugs']
+            pkg['bugs'] = {
+              'url' => "#{github_repo}#issues"
+            }
+          end
+          if !pkg['repository']
+            pkg['repository'] = {
+              'type' => 'git',
+              'url' => "git+#{github_repo}.git"
+            }
+          end
         end
-        if !pkg['bugs']
-          pkg['bugs'] = {
-            'url' => "#{github_repo}#issues"
-          }
+        if pkg['repository']
+          pkg['repository', 'url'] = pkg['repository', 'url'].sub(/^git:\/\//, 'git+https://')
         end
-        if !pkg['repository']
-          pkg['repository'] = {
-            'type' => 'git',
-            'url' => "git+#{github_repo}.git"
-          }
-        end
-        pkg['repository', 'url'] = pkg['repository', 'url'].sub(/^git:\/\//, 'git+https://')
       end
 
       # Update tsconfig.json
@@ -180,8 +203,37 @@ module JsLibDevKit
         end
       end
 
+      class Maintain < Dry::CLI::Command
+        desc "Create maintenance PR"
+        argument :project, required: true, desc: "Package name"
+        def call(project:, **)
+          projects = Project.all
+          project = projects.find { |p| p.package_name == project } or raise "Project not found"
+          project.maintain!
+        end
+      end
+
+      class MaintainAll < Dry::CLI::Command
+        desc "Create maintenance PR for all projects"
+        def call(*)
+          projects = Project.all
+          system "mkdir -p logs"
+          projects.each do |project|
+            print "Maintaining #{project.package_name}..."
+            log_path = "logs/#{project.package_name.gsub('/', '__').gsub('@', '')}.log"
+            if system "#{$0} maintain '#{project.package_name}' > '#{log_path}' 2>&1"
+              puts " OK"
+            else
+              puts " FAILED -> check #{log_path}"
+            end
+          end
+        end
+      end
+
       register "clone", Clone
       register "setup", Setup
+      register "maintain", Maintain
+      register "maintain-all", MaintainAll
     end
   end
 
