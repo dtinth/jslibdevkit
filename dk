@@ -9,19 +9,21 @@ module JsLibDevKit
     module Commands
       extend Dry::CLI::Registry
 
-      class Update < Dry::CLI::Command
-        desc "Updates all repos"
+      class Clone < Dry::CLI::Command
+        desc "Clone all repos in projects.yml"
 
         def call(*)
-          # Read `projects.yml`
-          projects = YAML.load_file("projects.yml")
+          projects = YAML.load_file(File.join(__dir__, "projects.yml")).sort_by { |p| p['name'] }
           projects.each do |project|
             package_name = project["name"]
             project_repo = project["repo"]
             repo_dir = "#{ENV["HOME"]}/npmPackages/#{package_name}"
 
             # Run `gh repo clone` if the repo doesn't exist
-            unless Dir.exist?(repo_dir)
+            if Dir.exist?(repo_dir)
+              puts "[#{package_name}] Repo already exists, skipping..."
+            else
+              puts "[#{package_name}] Cloning repo..."
               system("gh repo clone #{project_repo} #{repo_dir}")
             end
 
@@ -30,9 +32,6 @@ module JsLibDevKit
             if package_json["name"] != package_name
               raise "#{package_name}: 'name' in package.json does not match the name in projects.yml"
             end
-
-            # Install dependencies using pnpm
-            system("cd #{repo_dir} && pnpm install --prefer-offline")
           end
         end
       end
@@ -160,7 +159,7 @@ module JsLibDevKit
         end
       end
 
-      register "update", Update
+      register "clone", Clone
       register "setup", Setup
     end
   end
