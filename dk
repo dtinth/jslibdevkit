@@ -5,157 +5,178 @@ require "yaml"
 require "json"
 
 module JsLibDevKit
+  class Project
+    def self.all
+      YAML.load_file(File.join(__dir__, "projects.yml")).sort_by { |p| p['name'] }.map { |p| new(p) }
+    end
+    def initialize(data)
+      @data = data
+    end
+    def package_name
+      @data['name']
+    end
+    def project_repo
+      @data['repo']
+    end
+    def repo_dir
+      "#{ENV["HOME"]}/npmPackages/#{package_name}"
+    end
+    def clone!
+      # Run `gh repo clone` if the repo doesn't exist
+      if Dir.exist?(repo_dir)
+        puts "[#{package_name}] Repo already exists, skipping..."
+      else
+        puts "[#{package_name}] Cloning repo..."
+        system("gh repo clone #{project_repo} #{repo_dir}")
+      end
+
+      # Ensure that the package name matches
+      package_json = JSON.parse(File.read("#{repo_dir}/package.json"))
+      if package_json["name"] != package_name
+        raise "#{package_name}: 'name' in package.json does not match the name in projects.yml"
+      end
+    end
+  end
+
+  class ProjectSetup
+    def self.call
+      # Copy files from skeleton
+      system "rsync -rv '#{__dir__}/skeleton/' ./"
+
+      # Create some required directories
+      system "mkdir -p etc"
+
+      # Remote
+      remote = `git remote -v 2>&1 || true`
+      github_repo = nil
+      if remote =~ /origin\s+.*?(github\.com\/[^\s]+\/[^\s]+?)(?:\.git)?\s/
+        github_repo = "https://#{$1}"
+      end
+
+      # Delete files
+      files_to_delete = [
+        ".release-it.json",  # Replaced with `.release-it.yml`
+        ".prettierrc",       # Replaced with `.prettierrc.yml`
+        ".yarn.lock",        # Replaced with `pnpm-lock.yaml`
+        "package-lock.json", # Replaced with `pnpm-lock.yaml`
+        ".release-it.yml",   # Replaced with `.changeset`
+      ]
+      files_to_delete.each do |file|
+        if File.exist?(file)
+          File.delete(file)
+          puts "Deleted #{file}"
+        end
+      end
+
+      # Update dependency list
+      dev_dependencies = {
+        '@rushstack/heft'           => '0.44.2',
+        '@rushstack/heft-web-rig'   => '0.7.2',
+        '@types/heft-jest'          => '1.0.2',
+        'prettier'                  => '2.5.1',
+        '@changesets/cli'           => '2.20.0',
+      }
+      dev_dependencies_to_remove = [
+        'jest',                                    # Overridden by @rushstack/heft
+        'mocha',                                   # Overridden by @rushstack/heft
+        'chai',                                    # Overridden by @rushstack/heft
+        'typescript',                              # Overridden by @rushstack/heft
+        'api-documenter-yaml-to-antora-asciidoc',  # Overridden by apiref.page
+        '@microsoft/api-documenter',               # Overridden by apiref.page
+        'news-fragments',                          # Overridden by changeset
+        '@spacet.me/news-fragments',               # Overridden by changeset
+        'release-it',                              # Overridden by changeset
+      ]
+      if !File.exist?("package.json")
+        File.write("package.json", {}.to_json)
+      end
+      JsonEditor.run("package.json") do |pkg|
+        pkg['name'] = File.basename(Dir.pwd) unless pkg['name']
+        pkg['version'] = '0.0.0' unless pkg['version']
+        pkg['scripts', 'build'] = 'heft build'
+        pkg['scripts', 'test'] = 'heft test'
+        pkg['scripts', 'prepare'] = 'heft build && ./scripts/generate-api-docs'
+        pkg['scripts', 'release'] = './scripts/release'
+        pkg['scripts', 'format'] = 'prettier --write .'
+        pkg['scripts', 'api'] = './scripts/generate-api-docs'
+        pkg['files'] = [
+          "src",
+          "lib",
+          "lib-commonjs",
+          "dist"
+        ]
+        pkg['main'] = './lib-commonjs/index.js'
+        pkg['module'] = './lib/index.js'
+        pkg['types'] = "./dist/#{pkg.json['name'].split('/').last}.d.ts"
+        pkg['docModel'] = "./dist/#{pkg.json['name'].split('/').last}.api.json"
+        pkg.delete 'typings'
+
+        dev_dependencies.each do |name, version|
+          pkg['devDependencies', name] = version
+        end
+        dev_dependencies_to_remove.each do |name|
+          pkg.delete 'devDependencies', name
+        end
+
+        if !pkg['homepage']
+          pkg['homepage'] = "#{github_repo}#readme"
+        end
+        if !pkg['bugs']
+          pkg['bugs'] = {
+            'url' => "#{github_repo}#issues"
+          }
+        end
+        if !pkg['repository']
+          pkg['repository'] = {
+            'type' => 'git',
+            'url' => "git+#{github_repo}.git"
+          }
+        end
+        pkg['repository', 'url'] = pkg['repository', 'url'].sub(/^git:\/\//, 'git+https://')
+      end
+
+      # Update tsconfig.json
+      if !File.exist?("tsconfig.json")
+        File.write("tsconfig.json", "{}")
+      end
+      JsonEditor.run("tsconfig.json") do |tsc|
+        tsc.set 'extends', './tsconfig-base.json'
+        types = tsc.get('compilerOptions', 'types') || []
+        types << 'heft-jest' unless types.include?('heft-jest')
+        tsc.set 'compilerOptions', 'types', types
+      end
+
+      # Index
+      if !Dir.exist?("src")
+        Dir.mkdir("src")
+      end
+      if !File.exist?("src/index.ts")
+        File.write("src/index.ts", "export {}")
+      end
+
+      # Install dependencies using pnpm
+      system "pnpm install --prefer-offline"
+    end
+  end
+
   module CLI
     module Commands
       extend Dry::CLI::Registry
 
       class Clone < Dry::CLI::Command
         desc "Clone all repos in projects.yml"
-
         def call(*)
-          projects = YAML.load_file(File.join(__dir__, "projects.yml")).sort_by { |p| p['name'] }
+          projects = Project.all
           projects.each do |project|
-            package_name = project["name"]
-            project_repo = project["repo"]
-            repo_dir = "#{ENV["HOME"]}/npmPackages/#{package_name}"
-
-            # Run `gh repo clone` if the repo doesn't exist
-            if Dir.exist?(repo_dir)
-              puts "[#{package_name}] Repo already exists, skipping..."
-            else
-              puts "[#{package_name}] Cloning repo..."
-              system("gh repo clone #{project_repo} #{repo_dir}")
-            end
-
-            # Ensure that the package name matches
-            package_json = JSON.parse(File.read("#{repo_dir}/package.json"))
-            if package_json["name"] != package_name
-              raise "#{package_name}: 'name' in package.json does not match the name in projects.yml"
-            end
+            project.clone!
           end
         end
       end
 
       class Setup < Dry::CLI::Command
         desc "Set up tooling in this repo (idempotent)"
-
         def call(*)
-          # Copy files from skeleton
-          system "rsync -rv '#{__dir__}/skeleton/' ./"
-
-          # Create some required directories
-          system "mkdir -p etc"
-
-          # Remote
-          remote = `git remote -v 2>&1 || true`
-          github_repo = nil
-          if remote =~ /origin\s+.*?(github\.com\/[^\s]+\/[^\s]+?)(?:\.git)?\s/
-            github_repo = "https://#{$1}"
-          end
-
-          # Delete files
-          files_to_delete = [
-            ".release-it.json",  # Replaced with `.release-it.yml`
-            ".prettierrc",       # Replaced with `.prettierrc.yml`
-            ".yarn.lock",        # Replaced with `pnpm-lock.yaml`
-            "package-lock.json", # Replaced with `pnpm-lock.yaml`
-            ".release-it.yml",   # Replaced with `.changeset`
-          ]
-          files_to_delete.each do |file|
-            if File.exist?(file)
-              File.delete(file)
-              puts "Deleted #{file}"
-            end
-          end
-
-          # Update dependency list
-          dev_dependencies = {
-            '@rushstack/heft'           => '0.44.2',
-            '@rushstack/heft-web-rig'   => '0.7.2',
-            '@types/heft-jest'          => '1.0.2',
-            'prettier'                  => '2.5.1',
-            '@changesets/cli'           => '2.20.0',
-          }
-          dev_dependencies_to_remove = [
-            'jest',                                    # Overridden by @rushstack/heft
-            'mocha',                                   # Overridden by @rushstack/heft
-            'chai',                                    # Overridden by @rushstack/heft
-            'typescript',                              # Overridden by @rushstack/heft
-            'api-documenter-yaml-to-antora-asciidoc',  # Overridden by apiref.page
-            '@microsoft/api-documenter',               # Overridden by apiref.page
-            'news-fragments',                          # Overridden by changeset
-            '@spacet.me/news-fragments',               # Overridden by changeset
-            'release-it',                              # Overridden by changeset
-          ]
-          if !File.exist?("package.json")
-            File.write("package.json", {}.to_json)
-          end
-          JsonEditor.run("package.json") do |pkg|
-            pkg['name'] = File.basename(Dir.pwd) unless pkg['name']
-            pkg['version'] = '0.0.0' unless pkg['version']
-            pkg['scripts', 'build'] = 'heft build'
-            pkg['scripts', 'test'] = 'heft test'
-            pkg['scripts', 'prepare'] = 'heft build && ./scripts/generate-api-docs'
-            pkg['scripts', 'release'] = './scripts/release'
-            pkg['scripts', 'format'] = 'prettier --write .'
-            pkg['scripts', 'api'] = './scripts/generate-api-docs'
-            pkg['files'] = [
-              "src",
-              "lib",
-              "lib-commonjs",
-              "dist"
-            ]
-            pkg['main'] = './lib-commonjs/index.js'
-            pkg['module'] = './lib/index.js'
-            pkg['types'] = "./dist/#{pkg.json['name'].split('/').last}.d.ts"
-            pkg['docModel'] = "./dist/#{pkg.json['name'].split('/').last}.api.json"
-            pkg.delete 'typings'
-
-            dev_dependencies.each do |name, version|
-              pkg['devDependencies', name] = version
-            end
-            dev_dependencies_to_remove.each do |name|
-              pkg.delete 'devDependencies', name
-            end
-
-            if !pkg['homepage']
-              pkg['homepage'] = "#{github_repo}#readme"
-            end
-            if !pkg['bugs']
-              pkg['bugs'] = {
-                'url' => "#{github_repo}#issues"
-              }
-            end
-            if !pkg['repository']
-              pkg['repository'] = {
-                'type' => 'git',
-                'url' => "git+#{github_repo}.git"
-              }
-            end
-            pkg['repository', 'url'] = pkg['repository', 'url'].sub(/^git:\/\//, 'git+https://')
-          end
-
-          # Update tsconfig.json
-          if !File.exist?("tsconfig.json")
-            File.write("tsconfig.json", "{}")
-          end
-          JsonEditor.run("tsconfig.json") do |tsc|
-            tsc.set 'extends', './tsconfig-base.json'
-            types = tsc.get('compilerOptions', 'types') || []
-            types << 'heft-jest' unless types.include?('heft-jest')
-            tsc.set 'compilerOptions', 'types', types
-          end
-
-          # Index
-          if !Dir.exist?("src")
-            Dir.mkdir("src")
-          end
-          if !File.exist?("src/index.ts")
-            File.write("src/index.ts", "export {}")
-          end
-
-          # Install dependencies using pnpm
-          system "pnpm install --prefer-offline"
+          ProjectSetup.call
         end
       end
 
