@@ -28,5 +28,9 @@ Maintenance tasks (these are all idempotent):
   - It also sets up `files` `main` `module` `types` `docModel` fields so that the package has proper TypeScript support.
 - **It sets up TypeScript.**
   - A `tsconfig.json` is set up (customizable) to be based on `tsconfig-base.json`.
+- **It sets up continuous integration.**
+  - GitHub Action workflow files are created to lint, build, and test the package on every commit.
 - **It sets up a release process.**
   - GitHub Action workflow files are created to publish packages to npm registry automatically.
+- **It sets up a documentation pipeline.**
+  - It sets up integration with [apiref](https://github.com/dtinth/apiref).
