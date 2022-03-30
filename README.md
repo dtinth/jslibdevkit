@@ -33,4 +33,4 @@ Maintenance tasks (these are all idempotent):
 - **It sets up a release process.**
   - GitHub Action workflow files are created to publish packages to npm registry automatically.
 - **It sets up a documentation pipeline.**
-  - It sets up integration with [apiref](https://github.com/dtinth/apiref).
+  - It sets up integration with [apiref](https://github.com/dtinth/apiref), which produces a [nicely formatted documentation that looks like this](https://apiref.page/package/sync-external-store@1.0.0).
