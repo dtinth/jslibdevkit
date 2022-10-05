@@ -1,3 +1,6 @@
+> **Note**
+> This project has been superseded by [repolicy](https://github.com/dtinth/repolicy), rewritten in TypeScript.
+
 # jslibdevkit
 
 A little tool I built to help manage my JavaScript (TypeScript) library projects in multiple repos in a convention-based way, ironically written in Ruby.
